@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이터널 리턴 슬롯머신</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #2c3e50; color: white; }
+        
+        /* 버튼 공통 스타일 */
+        button {
+            padding: 10px 20px; font-size: 16px; font-weight: bold;
+            border: none; border-radius: 5px; cursor: pointer;
+            background-color: #e74c3c; color: white; transition: 0.2s;
+            margin: 5px;
+        }
+        button:hover { background-color: #c0392b; }
+        
+        /* --- 1. 실험체 선택 화면 스타일 --- */
+        #selection-screen { display: block; } /* 처음엔 보임 */
+        #character-pool { 
+            display: flex; 
+            flex-wrap: wrap; /* 자리가 모자라면 알아서 밑으로 내려가라! */
+            justify-content: center; 
+            gap: 10px; 
+            margin: 20px auto; 
+            /* 💡 핵심: (초상화 80px * 12개) + (여백 10px * 11개) = 딱 1070px */
+            max-width: 1070px; 
+        }
+        
+        .character {
+            width: 80px; height: 80px;
+            background-color: #34495e; color: white;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 8px; cursor: pointer; font-weight: bold;
+            transition: all 0.2s ease;
+            opacity: 0.3; /* 기본적으로 어둡게 */
+        }
+        .character.active { opacity: 1; box-shadow: 0 0 10px rgba(52, 152, 219, 0.8); background-color: #3498db; }
+
+        /* --- 2. 룰렛(슬롯머신) 화면 스타일 --- */
+        #roulette-screen { display: none; } /* 처음엔 숨김 */
+        
+        /* --- 교체 및 추가할 CSS 부분 --- */
+        .slot-machine-container {
+            width: 600px; /* 3칸이 들어가도록 가로로 넓게 수정 */
+            height: 250px; 
+            background-color: #ecf0f1; border: 15px solid #111;
+            border-radius: 20px; margin: 30px auto;
+            display: flex; align-items: center; justify-content: space-around; /* 3칸 균등 배치 */
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5), inset 0 0 30px rgba(0,0,0,0.3);
+            padding: 0 20px;
+        }
+
+        .slot {
+            width: 150px; height: 180px;
+            background-color: white; border: 5px solid #bdc3c7; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.2);
+            overflow: hidden;
+            transition: opacity 0.3s;
+        }
+
+        /* 나중에 이미지가 들어갈 자리 (팬키트 대비) */
+        .slot-content {
+            font-size: 40px; font-weight: 900; color: #e74c3c;
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            background-size: cover; background-position: center; /* 이미지가 꽉 차게 */
+        }
+
+        /* 위아래로 빠르게 움직이며 잔상이 남는 애니메이션 */
+        @keyframes spinFall {
+            0% { transform: translateY(-100%); opacity: 0.5; filter: blur(2px); }
+            50% { opacity: 1; filter: blur(4px); }
+            100% { transform: translateY(100%); opacity: 0.5; filter: blur(2px); }
+        }
+        
+        .spinning .slot-content { animation: spinFall 0.1s infinite linear; }
+        .slot.inactive { opacity: 0.3; background-color: #95a5a6; } /* 안 쓰는 칸은 어둡게 */
+
+        /* 룰렛 조작부 */
+        .roulette-controls { margin-top: 20px; }
+        .roulette-controls input { padding: 10px; font-size: 16px; width: 60px; text-align: center; border-radius: 5px; border: none; }
+
+        /* 최종 결과 출력 영역 */
+        #results { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; margin-top: 30px; }
+        .result-item {
+            width: 100px; height: 100px; background-color: #f1c40f; color: #111;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 10px; font-weight: bold; font-size: 20px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+	/* 🎰 슬롯머신이 돌아갈 때 컨테이너가 덜덜 떨리는 효과 */
+        @keyframes containerShake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            100% { transform: translate(1px, 1px) rotate(0deg); }
+        }
+
+        .shaking { animation: containerShake 0.1s infinite; }
+/* 슬롯과 선택창을 하나로 묶어주는 그룹 */
+.slot-group {
+    display: flex;
+    flex-direction: column; /* 세로 정렬 */
+    align-items: center;    /* 가운데 정렬 */
+    gap: 10px;              /* 슬롯과 선택창 사이 간격 */
+}
+
+/* 선택창(Select) 스타일 */
+.slot-role-selector {
+    padding: 5px;
+    border-radius: 5px;
+    background-color: #34495e;
+    color: white;
+    border: 1px solid #bdc3c7;
+    font-size: 14px;
+    cursor: pointer;
+    width: 120px;
+}
+    </style>
+</head>
+<body>
+
+    <div id="selection-screen">
+        <h1>실험체 풀(Pool) 설정</h1>
+        <p>룰렛에 돌릴 실험체를 선택해주세요.</p>
+        <div style="margin-bottom: 15px;">
+            <button onclick="setRoleFilter('전체')" style="background-color: #7f8c8d;">전체</button>
+            <button onclick="setRoleFilter('탱커')" style="background-color: #34495e;">🛡️ 탱커</button>
+            <button onclick="setRoleFilter('전사')" style="background-color: #d35400;">⚔️ 전사</button>
+            <button onclick="setRoleFilter('암살자')" style="background-color: #8e44ad;">🗡️ 암살자</button>
+            <button onclick="setRoleFilter('스킬 딜러')" style="background-color: #2980b9;">🔮 스킬 딜러</button>
+            <button onclick="setRoleFilter('원거리 딜러')" style="background-color: #27ae60;">🏹 원거리 딜러</button>
+            <button onclick="setRoleFilter('지원가')" style="background-color: #f1c40f; color: black;">✨ 지원가</button>
+        </div>
+        <div style="margin-bottom: 20px;">
+            <input type="text" id="search-input" placeholder="🔍 실험체 검색..." onkeyup="filterCharacters()" style="padding: 10px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; width: 200px; margin-right: 10px;">
+            
+            <button onclick="selectAll()">전체 선택</button>
+            <button onclick="deselectAll()">전체 해제</button>
+        </div>
+
+        <div id="character-pool"></div>
+
+        <button onclick="goToRoulette()" style="font-size: 20px; padding: 15px 30px; background-color: #2ecc71;">선택 완료 (룰렛장으로 이동)</button>
+    </div>
+
+
+    <div id="roulette-screen">
+        <h1>슬롯머신 뽑기</h1>
+        <button onclick="goToSelection()" style="background-color: #95a5a6;">◀ 다시 선택하기</button>
+
+        <div class="slot-machine-container">
+	
+    <div class="slot-group">
+        <div class="slot" id="slot-1"><div class="slot-content">READY</div></div>
+        <select id="slot-1-role" class="slot-role-selector">
+            <option value="전체">전체</option>
+            <option value="탱커">탱커</option>
+            <option value="전사">전사</option>
+            <option value="암살자">암살자</option>
+            <option value="스킬 딜러">스킬 딜러</option>
+            <option value="원거리 딜러">원거리 딜러</option>
+            <option value="지원가">지원가</option>
+        </select>
+    </div>
+
+    <div class="slot-group">
+        <div class="slot" id="slot-2"><div class="slot-content">READY</div></div>
+        <select id="slot-2-role" class="slot-role-selector">
+            <option value="전체">전체</option>
+            <option value="탱커">탱커</option>
+            <option value="전사">전사</option>
+            <option value="암살자">암살자</option>
+            <option value="스킬 딜러">스킬 딜러</option>
+            <option value="원거리 딜러">원거리 딜러</option>
+            <option value="지원가">지원가</option>
+        </select>
+    </div>
+
+    <div class="slot-group">
+        <div class="slot" id="slot-3"><div class="slot-content">READY</div></div>
+        <select id="slot-3-role" class="slot-role-selector">
+            <option value="전체">전체</option>
+            <option value="탱커">탱커</option>
+            <option value="전사">전사</option>
+            <option value="암살자">암살자</option>
+            <option value="스킬 딜러">스킬 딜러</option>
+            <option value="원거리 딜러">원거리 딜러</option>
+            <option value="지원가">지원가</option>
+        </select>
+    </div>
+   <div class="slot-group" id="slot-4-group" style="display: none;"> <div class="slot" id="slot-4"><div class="slot-content">READY</div></div>
+    <select id="slot-4-role" class="slot-role-selector">
+        <option value="전체">전체</option>
+        <option value="탱커">탱커</option>
+        <option value="전사">전사</option>
+        <option value="암살자">암살자</option>
+        <option value="스킬 딜러">스킬 딜러</option>
+        <option value="원거리 딜러">원거리 딜러</option>
+        <option value="지원가">지원가</option>
+    </select>
+</div>
+
+</div>
+
+        <div class="roulette-controls">
+    <label for="spin-count" style="font-size: 18px;">몇 개 뽑을까요? </label>
+    
+    <input type="number" id="spin-count" value="3" min="1" max="3" 
+           oninput="if(this.value > this.max) this.value = this.max;">
+    
+    <button onclick="startRoulette()" style="background-color: #f39c12; font-size: 20px;">🎰 스핀 시작!</button>
+</div>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+/*
+ * Copyright (c) 2020-2026 Nimble Neuron Corp.
+ * All rights reserved.
+ * * [Disclaimer]
+ * This is unofficial fan content created under the Nimble Neuron Fan Content Policy.
+ * It is not endorsed by or affiliated with Nimble Neuron.
+ */
+        // 1. 실험체 이미지 리스트 (가나다순) - 가장 먼저 선언해줍니다!
+        // 1. 실험체 통합 데이터 (이미지 + 역할군)
+        const characterData = {
+            "가넷": { img: "Garnet_Mini_00.png", roles: ["탱커", "전사"] },
+            "나딘": { img: "Nadine_Mini_00.png", roles: ["원거리 딜러", "스킬 딜러"] },
+            "나타폰": { img: "Nathapon_Mini_00.png", roles: ["스킬 딜러"] },
+            "니아": { img: "NiaH_Mini_00.png", roles: ["스킬 딜러"] },
+            "니키": { img: "Nicky_Mini_00.png", roles: ["전사"] },
+            "다니엘": { img: "Daniel_Mini_00.png", roles: ["암살자"] },
+            "다르코": { img: "Darko_Mini_00.png", roles: ["전사"] },
+            "데비&마를렌": { img: "DebiMarlene_Mini_00.png", roles: ["전사"] },
+            "띠아": { img: "Tia_Mini_00.png", roles: ["스킬 딜러"] },
+            "라우라": { img: "Laura_Mini_00.png", roles: ["전사"] },
+            "레녹스": { img: "Lenox_Mini_00.png", roles: ["탱커"] },
+            "레니": { img: "Leni_Mini_00.png", roles: ["지원가"] },
+            "레온": { img: "Leon_Mini_00.png", roles: ["전사"] },
+            "로지": { img: "Rozzi_Mini_00.png", roles: ["원거리 딜러"] },
+            "루크": { img: "Luke_Mini_00.png", roles: ["전사"] },
+            "르노어": { img: "Lenore_Mini_00.png", roles: ["스킬 딜러"] },
+            "리 다이린": { img: "Li Dailin_Mini_00.png", roles: ["전사"] },
+            "리오": { img: "Rio_Mini_00.png", roles: ["원거리 딜러"] },
+            "마르티나": { img: "Martina_Mini_00.png", roles: ["원거리 딜러"] },
+            "마이": { img: "Mai_Mini_00.png", roles: ["탱커", "지원가"] },
+            "마커스": { img: "Markus_Mini_00.png", roles: ["탱커", "전사"] },
+            "매그너스": { img: "Magnus_Mini_00.png", roles: ["탱커", "전사"] },
+            "미르카": { img: "Mirka_Mini_00.png", roles: ["탱커", "전사"] },
+            "바냐": { img: "Vanya_Mini_00.png", roles: ["전사"] },
+            "바바라": { img: "Barbara_Mini_00.png", roles: ["스킬 딜러"] },
+            "버니스": { img: "bERnice_Mini_00.png", roles: ["원거리 딜러"] },
+            "블레어": { img: "Blair_Mini_00.png", roles: ["전사"] },
+            "비앙카": { img: "Bianca_Mini_00.png", roles: ["스킬 딜러"] },
+            "샬럿": { img: "Charlotte_Mini_00.png", roles: ["지원가"] },
+            "셀린": { img: "Celine_Mini_00.png", roles: ["스킬 딜러"] },
+            "쇼우": { img: "Xiukai_Mini_00.png", roles: ["탱커"] },
+            "쇼이치": { img: "Shoichi_Mini_00.png", roles: ["암살자"] },
+            "수아": { img: "Sua_Mini_00.png", roles: ["전사", "스킬 딜러"] },
+            "슈린": { img: "Xuelin_Mini_00.png", roles: ["전사", "암살자"] },
+            "시셀라": { img: "Sissela_Mini_00.png", roles: ["스킬 딜러"] },
+            "실비아": { img: "Silvia_Mini_00.png", roles: ["전사", "스킬 딜러"] },
+            "아델라": { img: "Adela_Mini_00.png", roles: ["스킬 딜러"] },
+            "아드리아나": { img: "Adriana_Mini_00.png", roles: ["스킬 딜러"] },
+            "아디나": { img: "Adina_Mini_00.png", roles: ["스킬 딜러", "지원가"] },
+            "아르다": { img: "Arda_Mini_00.png", roles: ["스킬 딜러", "지원가"] },
+            "아비게일": { img: "Abigail_Mini_00.png", roles: ["전사"] },
+            "아야": { img: "Aya_Mini_00.png", roles: ["원거리 딜러", "스킬 딜러"] },
+            "아이솔": { img: "Isol_Mini_00.png", roles: ["원거리 딜러", "스킬 딜러"] },
+            "아이작": { img: "Isaac_Mini_00.png", roles: ["전사"] },
+            "알렉스": { img: "Alex_Mini_00.png", roles: ["전사"] },
+            "알론소": { img: "Alonso_Mini_00.png", roles: ["탱커"] },
+            "얀": { img: "Jan_Mini_00.png", roles: ["전사"] },
+            "에스텔": { img: "Estelle_Mini_00.png", roles: ["탱커", "전사"] },
+            "에이든": { img: "Aiden_Mini_00.png", roles: ["전사"] },
+            "에키온": { img: "Echion_Mini_00.png", roles: ["전사"] },
+            "엘레나": { img: "Elena_Mini_00.png", roles: ["탱커"] },
+            "엠마": { img: "Emma_Mini_00.png", roles: ["스킬 딜러"] },
+            "요한": { img: "Johann_Mini_00.png", roles: ["지원가"] },
+            "윌리엄": { img: "William_Mini_00.png", roles: ["원거리 딜러"] },
+            "유민": { img: "YuMin_Mini_00.png", roles: ["스킬 딜러"] },
+            "유스티나": { img: "Justyna_Mini_00.png", roles: ["스킬 딜러"] },
+            "유키": { img: "Yuki_Mini_00.png", roles: ["전사"] },
+            "이렘": { img: "Irem_Mini_00.png", roles: ["전사", "스킬 딜러"] },
+            "이바": { img: "Eva_Mini_00.png", roles: ["스킬 딜러"] },
+            "이슈트반": { img: "Istvan_Mini_00.png", roles: ["전사"] },
+            "이안": { img: "Ly anh_Mini_00.png", roles: ["전사"] },
+            "일레븐": { img: "Eleven_Mini_00.png", roles: ["탱커"] },
+            "자히르": { img: "Zahir_Mini_00.png", roles: ["스킬 딜러"] },
+            "재키": { img: "Jackie_Mini_00.png", roles: ["전사"] },
+            "제니": { img: "Jenny_Mini_00.png", roles: ["원거리 딜러"] },
+            "츠바메": { img: "Tsubame_Mini_00.png", roles: ["원거리 딜러"] },
+            "카밀로": { img: "Camilo_Mini_00.png", roles: ["전사"] },
+            "카티야": { img: "Katja_Mini_00.png", roles: ["원거리 딜러"] },
+            "칼라": { img: "Karla_Mini_00.png", roles: ["원거리 딜러"] },
+            "캐시": { img: "Cathy_Mini_00.png", roles: ["암살자"] },
+            "케네스": { img: "Kenneth_Mini_00.png", roles: ["전사"] },
+            "코렐라인": { img: "Coraline_Mini_00.png", roles: ["스킬 딜러"] },
+            "클로에": { img: "Chloe_Mini_00.png", roles: ["원거리 딜러"] },
+            "키아라": { img: "Chiara_Mini_00.png", roles: ["전사"] },
+            "타지아": { img: "Tazia_Mini_00.png", roles: ["스킬 딜러"] },
+            "테오도르": { img: "Theodore_Mini_00.png", roles: ["원거리 딜러", "지원가"] },
+            "펜리르": { img: "Fenrir_Mini_00.png", roles: ["전사"] },
+            "펠릭스": { img: "Felix_Mini_00.png", roles: ["전사"] },
+            "프리야": { img: "Priya_Mini_00.png", roles: ["지원가", "스킬 딜러"] },
+            "피오라": { img: "Fiora_Mini_00.png", roles: ["전사"] },
+            "피올로": { img: "Piolo_Mini_00.png", roles: ["전사"] },
+            "하트": { img: "Hart_Mini_00.png", roles: ["원거리 딜러"] },
+            "헤이즈": { img: "Haze_Mini_00.png", roles: ["스킬 딜러"] },
+            "헨리": { img: "Henry_Mini_00.png", roles: ["스킬 딜러"] },
+            "현우": { img: "Hyunwoo_Mini_00.png", roles: ["전사"] },
+            "혜진": { img: "Hyejin_Mini_00.png", roles: ["스킬 딜러"] },
+            "히스이": { img: "Hisui_Mini_00.png", roles: ["전사"] }
+        };
+
+        // 2. 위 목록에서 한국어 이름들만 자동으로 쫙 뽑아서 배열로 만들기!
+       
+        const allCharacters = Object.keys(characterData);
+        
+        // 3. 화면 요소들 가져오기
+        const selectionScreen = document.getElementById('selection-screen');
+        const rouletteScreen = document.getElementById('roulette-screen');
+        const poolContainer = document.getElementById('character-pool');
+        const resultsContainer = document.getElementById('results');
+        
+        let isSpinning = false; // 돌아가는 중인지 체크
+        let activePool = []; // 선택된 실험체들만 담아둘 배열
+
+        // --- 선택 화면 초상화 그리기 ---
+        function renderPool() {
+            poolContainer.innerHTML = ''; 
+            // Object.keys를 사용하여 이름 목록을 가져옵니다.
+            Object.keys(characterData).forEach(name => {
+                const div = document.createElement('div');
+                div.className = 'character active'; 
+                div.dataset.name = name;
+                div.title = name;
+                
+                // 💡 수정된 부분: .img 추가
+                div.style.backgroundImage = `url('images/${characterData[name].img}')`;
+                div.style.backgroundSize = 'cover';
+                div.style.backgroundPosition = 'center';
+                
+                div.onclick = () => { 
+                    if (!isSpinning) div.classList.toggle('active'); 
+                };
+                poolContainer.appendChild(div);
+            });
+        }
+
+        // --- 버튼 기능들 ---
+        function selectAll() {
+            // 전체 캐릭터 중 현재 화면에 보이는(display가 none이 아닌) 요소만 선택
+            document.querySelectorAll('.character').forEach(el => {
+                if (el.style.display !== 'none') {
+                    el.classList.add('active');
+                }
+            });
+        }
+
+        function deselectAll() {
+            // 전체 캐릭터 중 현재 화면에 보이는 요소만 해제
+            document.querySelectorAll('.character').forEach(el => {
+                if (el.style.display !== 'none') {
+                    el.classList.remove('active');
+                }
+            });
+        }
+
+        // --- 화면 전환 로직 ---
+        function goToSelection() {
+            if (isSpinning) return; 
+            document.getElementById('roulette-screen').style.display = 'none';
+            document.getElementById('selection-screen').style.display = 'block';
+        }
+
+        function goToRoulette() {
+            const activeElements = document.querySelectorAll('.character.active');
+            activePool = Array.from(activeElements).map(el => el.dataset.name);
+
+            if (activePool.length === 0) {
+                alert("최소 한 명의 실험체를 선택해주세요!");
+                return;
+            }
+
+            selectionScreen.style.display = 'none';
+            rouletteScreen.style.display = 'block';
+            
+            // 룰렛 화면 3칸 초기화
+            for (let i = 1; i <= 3; i++) {
+                const slot = document.getElementById(`slot-${i}`);
+                const content = slot.querySelector('.slot-content');
+                slot.classList.remove('inactive');
+                content.textContent = "READY";
+                content.style.backgroundImage = 'none'; 
+            }
+            resultsContainer.innerHTML = '';
+        }
+
+        // --- 슬롯머신 돌아가는 로직 ---
+        function startRoulette() {
+            if (isSpinning) return;
+            
+            const spinInput = document.getElementById('spin-count');
+            let spinCount = parseInt(spinInput.value);
+	    const maxLimit = isHiddenMode ? 4 : 3;
+	    if (spinCount > maxLimit) {
+        alert(`현재 최대 ${maxLimit}개까지만 설정 가능합니다!`);
+        spinInput.value = maxLimit; // 입력창 숫자도 강제로 돌려놓음
+        spinCount = maxLimit;       // 실제 계산할 숫자도 수정
+        return; // 일단 중단 (사용자에게 경고)
+    }
+            // 1. 선택된 총 인원 확인
+            if (activePool.length < spinCount) {
+                alert(`최소 ${spinCount}명의 실험체를 선택해주세요!`);
+                return;
+            }
+
+            resultsContainer.innerHTML = ''; 
+            isSpinning = true;
+            
+            const machine = document.querySelector('.slot-machine-container');
+            machine.classList.add('shaking');
+
+            let finalResults = []; // 최종 당첨자 명단
+
+            // 2. 각 슬롯별로 조건에 맞는 당첨자 미리 선정
+            for (let i = 1; i <= spinCount; i++) {
+                const selectedRole = document.getElementById(`slot-${i}-role`).value;
+                
+                // 아직 안 뽑힌 사람 중에서 후보 필터링
+                let candidates = activePool.filter(name => !finalResults.includes(name));
+                
+                // 역할군 필터 적용
+                if (selectedRole !== "전체") {
+                    candidates = candidates.filter(name => characterData[name].roles.includes(selectedRole));
+                }
+
+                // 만약 조건에 맞는 실험체가 풀에 없다면 에러 발생
+                if (candidates.length === 0) {
+                    alert(`${i}번 슬롯의 조건([${selectedRole}])에 맞는 실험체가 선택 풀에 부족합니다! (중복 제외)`);
+                    isSpinning = false;
+                    machine.classList.remove('shaking');
+                    // 슬롯 상태 초기화
+                    for(let j=1; j<=3; j++) document.getElementById(`slot-${j}`).classList.remove('spinning');
+                    return;
+                }
+
+                // 후보 중 랜덤 한 명 확정
+                const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+                finalResults.push(chosen);
+            }
+
+            // 3. 애니메이션 실행
+            let slotsFinished = 0;
+            for (let i = 1; i <= 4; i++) {
+                const slot = document.getElementById(`slot-${i}`);
+                const content = slot.querySelector('.slot-content');
+                const roleSelector = document.getElementById(`slot-${i}-role`);
+
+                if (i > spinCount) {
+            slot.classList.add('inactive');
+            content.textContent = "X";
+            content.style.backgroundImage = 'none';
+            // 히든 모드가 아니더라도 4번 슬롯은 원래 display:none이라 괜찮지만 안전하게 처리
+            if(i === 4 && !isHiddenMode) slot.parentElement.style.display = 'none';
+                } else {
+                    slot.classList.remove('inactive');
+                    slot.classList.add('spinning');
+                    roleSelector.style.display = 'block';
+
+                    let ticks = 0;
+                    const maxTicks = 20 + (i * 15);
+                    const selectedRole = roleSelector.value;
+
+                    const slotInterval = setInterval(() => {
+                        // 애니메이션 중에도 선택된 역할군 이미지들이 휙휙 지나가게 처리
+                        let animPool = activePool;
+                        if (selectedRole !== "전체") {
+                            animPool = activePool.filter(name => characterData[name].roles.includes(selectedRole));
+                        }
+                        // 만약 애니메이션용 풀이 비어있을 경우 대비(에러방지)
+                        if (animPool.length === 0) animPool = activePool;
+
+                        const randomChar = animPool[Math.floor(Math.random() * animPool.length)];
+                        content.textContent = ""; 
+                        content.style.backgroundImage = `url('images/${characterData[randomChar].img}')`;
+                        content.style.filter = "blur(1px)"; 
+                        
+                        ticks++;
+
+                        if (ticks >= maxTicks) {
+                            clearInterval(slotInterval);
+                            slot.classList.remove('spinning'); 
+                            
+                            const finalChar = finalResults[i - 1]; 
+                            content.style.filter = "none"; 
+                            content.style.backgroundImage = `url('images/${characterData[finalChar].img}')`;
+
+                            // 결과 리스트 표시
+                            const resultDiv = document.createElement('div');
+                            resultDiv.className = 'result-item';
+                            resultDiv.style.backgroundImage = `url('images/${characterData[finalChar].img}')`;
+                            resultDiv.style.backgroundSize = 'cover';
+                            resultDiv.style.backgroundPosition = 'center';
+                            resultDiv.title = finalChar;
+                            resultsContainer.appendChild(resultDiv);
+
+                            slotsFinished++;
+                            if (slotsFinished === spinCount) {
+                                isSpinning = false;
+                                machine.classList.remove('shaking');
+                            }
+                        }
+                    }, 50);
+                }
+            }
+        }
+
+        // 페이지 켜질 때 한 번 실행
+        renderPool();
+	// --- 추가할 JavaScript 부분 (맨 아래쪽 쯤에 넣어주세요) ---
+
+      let currentRoleFilter = "전체"; // 현재 어떤 역할군이 선택됐는지 저장
+
+        // 버튼을 눌렀을 때 실행될 함수
+        function setRoleFilter(role) {
+            currentRoleFilter = role;
+            
+            // 버튼 시각 효과: 선택된 버튼만 강조하고 싶다면 여기에 추가 로직 가능
+            console.log("선택된 필터:", role);
+            
+            filterCharacters(); // 필터를 바꿨으니 다시 화면을 그려라!
+        }
+
+        function filterCharacters() {
+            const searchText = document.getElementById('search-input').value.trim();
+            const characterDivs = document.querySelectorAll('#character-pool .character');
+
+            // 초성 변환기 (기존 것과 동일)
+            function getChoseong(str) {
+                const cho = ["ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+                let result = "";
+                for (let i = 0; i < str.length; i++) {
+                    const code = str.charCodeAt(i) - 44032;
+                    if (code > -1 && code < 11172) result += cho[Math.floor(code / 588)];
+                    else result += str.charAt(i);
+                }
+                return result;
+            }
+
+            const searchChoseong = getChoseong(searchText);
+            const isOnlyCho = /^[ㄱ-ㅎ]+$/.test(searchText);
+
+            characterDivs.forEach(div => {
+                const name = div.dataset.name;
+                const data = characterData[name]; // 이제 객체에서 데이터를 가져옴
+                
+                // 1. 이름/초성 매칭 확인
+                let isNameMatch = false;
+                if (searchText === "") {
+                    isNameMatch = true;
+                } else if (isOnlyCho) {
+                    isNameMatch = getChoseong(name).startsWith(searchChoseong);
+                } else {
+                    isNameMatch = name.startsWith(searchText);
+                }
+
+                // 2. 역할군 매칭 확인 💡 (추가된 핵심 로직)
+                let isRoleMatch = false;
+                if (currentRoleFilter === "전체") {
+                    isRoleMatch = true;
+                } else {
+                    // 실험체의 roles 배열에 선택한 필터가 포함되어 있는지 확인
+                    isRoleMatch = data.roles.includes(currentRoleFilter);
+                }
+
+                // 3. 둘 다 만족해야 화면에 보여줌
+                if (isNameMatch && isRoleMatch) {
+                    div.style.display = 'flex';
+                } else {
+                    div.style.display = 'none';
+                }
+            });
+        }
+// --- 음악 및 히든 모드 설정 ---
+let isHiddenMode = false;
+const bgm = new Audio('sounds/default_bgm.mp3'); // 기본 음악
+bgm.loop = true;
+
+function toggleMusic() {
+    const btn = document.getElementById('music-btn');
+    if (bgm.paused) {
+        bgm.play();
+        btn.textContent = "🎵 BGM ON";
+        btn.style.backgroundColor = "#2ecc71";
+    } else {
+        bgm.pause();
+        btn.textContent = "🎵 BGM OFF";
+        btn.style.backgroundColor = "#34495e";
+    }
+}
+
+// --- 코나미 코드 감지 ---
+const konamiCode = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
+let konamiIndex = 0;
+
+document.addEventListener('keydown', (e) => {
+    // 사용자가 누른 키가 코나미 코드의 순서와 맞는지 확인
+    if (e.key === konamiCode[konamiIndex]) {
+        konamiIndex++;
+        if (konamiIndex === konamiCode.length) {
+            activateHiddenMode();
+            konamiIndex = 0; // 초기화
+        }
+    } else {
+        konamiIndex = 0; // 틀리면 초기화
+    }
+});
+
+function activateHiddenMode() {
+    if (isHiddenMode) return;
+    
+    isHiddenMode = true;
+    
+    // 1. 봉인 해제 알림
+    alert("🔓 SYSTEM: LIMIT BREAKER ACTIVATED! (코발트모드 활성화)");
+
+    // 2. 입력창 봉인 해제 (핵심!)
+    const spinInput = document.getElementById('spin-count');
+    spinInput.max = 4;   // 최대치를 4로 확장
+    spinInput.value = 4; // 바로 4로 변경해주는 센스
+    spinInput.style.backgroundColor = "#e74c3c"; // 위험해 보이는 색으로 변경
+    spinInput.style.color = "white";
+
+    // 3. 4번째 슬롯 칸 보여주기
+    document.getElementById('slot-4-group').style.display = 'flex';
+    
+    // 4. 배경 이미지나 기계 색상을 바꿔서 "나 히든모드다" 티내기 (선택사항)
+    document.querySelector('.slot-machine-container').style.borderColor = "#e74c3c";
+
+    // 5. 음악 교체
+    bgm.src = 'sounds/hidden_bgm.mp3';
+    bgm.play();
+}
+    </script>
+<footer style="margin-top: 50px; padding: 30px 20px; font-size: 12px; color: #95a5a6; line-height: 1.8; border-top: 1px solid #34495e; text-align: center; background-color: rgba(0,0,0,0.2);">
+        <div style="max-width: 800px; margin: 0 auto;">
+            <p style="margin-bottom: 10px; font-weight: bold; color: #bdc3c7;">
+                본 사이트는 이터널 리턴의 IP를 활용한 비공식 2차 창작물입니다.
+            </p>
+            <p style="margin-bottom: 15px;">
+                님블뉴런의 공식적인 입장이나 지원과는 관련이 없으며, <br>
+                사용된 모든 게임 관련 자산(이미지, 캐릭터 이름 등)의 저작권은 <b>㈜님블뉴런(Nimble Neuron Corp.)</b>에 있습니다.
+            </p>
+            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px dotted #465a6d; opacity: 0.7;">
+                <p>Copyright © 2020-2026 Nimble Neuron Corp. All rights reserved.</p>
+                <p>This project is licensed under the <b>MIT License</b>.</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
